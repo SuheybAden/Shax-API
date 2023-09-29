@@ -17,8 +17,6 @@ class BoardManager:
     # Constructor function
     # Sets all the constant variables for the game
     def __init__(self, params) -> None:
-        default_error_msg = "An error occured while initializing the board manager"
-
         # Load all the necessary input parameters
         try:
             # Minimum number of pieces a player can have or its game over
@@ -27,7 +25,7 @@ class BoardManager:
             # Maximum number of pieces each player can have
             self.MAX_PIECES = params["max_pieces"]
 
-        except:
+        except Exception:
             return {"success": False,
                     "error": "Couldn't load all the necessary parameters"}
 
@@ -82,7 +80,7 @@ class BoardManager:
             self.players.append(params["p1_id"])
             self.players.append(params["p2_id"])
 
-        except:
+        except Exception:
             return {"success": False,
                     "error": "Couldn't load all the necessary parameters"}
 
