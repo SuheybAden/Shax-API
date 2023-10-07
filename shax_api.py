@@ -17,9 +17,13 @@ waiting_list: dict[WebSocketServerProtocol, int] = {}
 games: dict[BoardManager, list[WebSocketServerProtocol, WebSocketServerProtocol]] = {}
 
 # Player Websocket(key) -> List containing the BoardManager and opposing player (value)
-players: dict[WebSocketServerProtocol, list[BoardManager,WebSocketServerProtocol]] = {}
+players: dict[WebSocketServerProtocol, list[BoardManager, WebSocketServerProtocol]] = {}
 
 
+# Takes in a new connection looking for a game.
+# If the waiting list has another connection waiting for the same type of game,
+# a new game is started between it and the new connection.
+# Otherwise, the new connection is put into the waiting list
 async def join_game(connection, params):
     # Load all the necessary parameters
     try:
@@ -41,14 +45,14 @@ async def join_game(connection, params):
 
         # Generate random IDs for each player
         n = 1000
-        p1_id = secrets.randbelow(n)
-        p2_id = secrets.randbelow(n)
+        p1_id = 1  # secrets.randbelow(n)
+        p2_id = 2  # secrets.randbelow(n)
 
         game_params = {"min_pieces": 2, "max_pieces": 7,
                        "p1_id": p1_id, "p2_id": p2_id}
 
         # Add both players to a new game
-        game_manager = BoardManager(game_params)
+        game_manager: BoardManager = BoardManager(game_params)
         game_manager.start_game(game_params)
 
         # Update all references
@@ -56,16 +60,20 @@ async def join_game(connection, params):
         players[connection] = (game_manager, opponent)
         players[opponent] = (game_manager, connection)
 
+        adjacent_pieces_json = {str(key): [(int(val1), int(val2)) for val1, val2 in value]
+                                for key, value in game_manager.adjacent_pieces.items()}
         response = {
             "success": True,
             "waiting": False,
-            "id": p1_id,
+            "player_ID": p1_id,
+            "player_num": 0,
             "action": "join_game",
-            "board_state": game_manager.board_state.tolist(),
+            "adjacent_pieces": adjacent_pieces_json
         }
         await connection.send(json.dumps(response))
 
-        response["id"] = p2_id
+        response["player_ID"] = p2_id
+        response["player_num"] = 1
         await opponent.send(json.dumps(response))
         return
 
@@ -74,33 +82,53 @@ async def join_game(connection, params):
         game_types[game_type] = connection
         waiting_list[connection] = game_type
 
-        response = {"success": True, "waiting": True, "action": "join_game"}
+        print("waiting")
+        response = {"success": True, "waiting": True, "action": "join_game", "adjacent_pieces": {}}
         await connection.send(json.dumps(response))
         return
 
 
+# Remove any references to the player
 async def close_connection(connection):
-    # If the disconnected player was in a game, conclude the game they were in
+    # If they were in a game, remove any remaining references to the player and their opponent
     if connection in players:
-        board_manager, opponent = players.pop(connection)
-
-        # Tell the other player that their opponent left
-        response = {"success": True,
-                    "game_over": True,
-                    "msg": "Your opponent has forfeited."}
-        await opponent.send(json.dumps(response))
-
-        # Remove any remaining references to the other player
+        board_manager, opponent = players.pop(connection, None)
         players.pop(opponent, None)
 
-    # Otherwise, remove any references to the disconnected player in the waiting list
+        # Tell the other player that their opponent left
+        result = {"success": True,
+                  "action": "end",
+                  "won": True,
+                  "msg": "Opponent Forfeited."}
+        await opponent.send(json.dumps(result))
+
+        # Generate message for telling the player that they forfeited
+        result["won"] = False
+        result["msg"] = "You Forfeited."
+        return result
+
+    # Remove any references to the disconnected player in the waiting list
     elif connection in waiting_list:
         game_type = waiting_list.pop(connection)
         game_types.pop(game_type)
 
+        # Generate the message for telling the player that they left the waiting list
+        result = {"success": True,
+                  "action": "end",
+                  "msg": "You've left the waiting list."}
+
+        return result
+
+    else:
+        # Generate the message for telling the player that they left the waiting list
+        result = {"success": False,
+                  "msg": "You are neither in a waiting list or game"}
+
+        return result
+
 
 async def handler(connection):
-    print("There's a new connection!")
+    print("There's a new connection from ", connection.remote_address[0], "!")
 
     try:
         async for message in connection:
@@ -111,140 +139,107 @@ async def handler(connection):
                 await connection.send(json.dumps({}))
                 continue
 
-            # Load all the necessary parameters for this step
+            # Get the action that the player wants to perform
             try:
                 action: str = params["action"]
             except Exception:
                 response = {
                     "success": False,
-                    "error": "JSON object isn't formatted properly"
+                    "error": "\"action\" property could not be found in the JSON request"
                 }
                 await connection.send(json.dumps(response))
                 continue
 
             # START GAME CASE
             if action == "join_game":
+                print("A player is trying to join a game")
+                response = {
+                    "success": False,
+                    "action": "join_game"
+                }
                 # Checks if the player is already in a game
                 if connection in players:
-                    response = {
-                        "success": False,
-                        "action": "join_game",
-                        "error": "The player is already in a game"
-                    }
+                    response["error"] = "The player is already in a game"
                     await connection.send(json.dumps(response))
 
                 # Checks if the player is already waiting for a game
                 elif connection in waiting_list:
-                    response = {
-                        "success": False,
-                        "action": "join_game",
-                        "error": "The player is already in the waiting list"
-                    }
+                    response["error"] = "The player is already in the waiting list"
                     await connection.send(json.dumps(response))
 
                 # Tries connecting a new player to a game
                 else:
                     await join_game(connection, params)
 
-            # PLACE PIECE CASE
-            elif action == "place_piece":
-                game_manager, opponent = players.get(connection, None)
+            # END CASE
+            elif action == "end":
+                response = await close_connection(connection)
 
-                # Checks if the player is in a game
-                if game_manager is None:
-                    response = {
-                        "success": False,
-                        "action": "place_piece",
-                        "error": "The player isn't in a game yet"
-                    }
-                    await connection.send(json.dumps(response))
-                    continue
+                print(response["msg"])
 
-                # Passes the move to the game manager and sends back the outcome
-                result = game_manager.place_piece(params)
-                await connection.send(json.dumps(result))
-
-                # Notify the opponent if the move was successful
-                if(result["success"]):
-                    await opponent.send(json.dumps(result))
-
-            # REMOVE PIECE CASE
-            elif action == "remove_piece":
-                game_manager = players.get(connection, None)
-
-                # Checks if the player is in a game
-                if game_manager is None:
-                    response = {
-                        "success": False,
-                        "action": "remove_piece",
-                        "error": "The player isn't in a game yet"
-                    }
-                    await connection.send(json.dumps(response))
-                    continue
-
-                # Passes the move to the game manager and sends back the outcome
-                result = game_manager.remove_piece(params)
-                await connection.send(json.dumps(result))
-                
-                # Notify the opponent if the move was successful
-                if(result["success"]):
-                    await opponent.send(json.dumps(result))
-
-            # MOVE PIECE CASE
-            elif action == "move_piece":
-                game_manager = players.get(connection, None)
-
-                # Checks if the player is in a game
-                if game_manager is None:
-                    response = {
-                        "success": False,
-                        "action": "move_piece",
-                        "error": "The player isn't in a game yet"
-                    }
-                    await connection.send(json.dumps(response))
-                    continue
-
-                # Passes the move to the game manager and sends back the outcome
-                result = game_manager.move_piece(params)
-                await connection.send(json.dumps(result))
-
-                # Notify the opponent if the move was successful
-                if(result["success"]):
-                    await opponent.send(json.dumps(result))
-
-            # FORFEIT CASE
-            elif action == "forfeit":
-                game_manager = players.get(connection, None)
-
-                # Checks if the player is in a game
-                if game_manager is None:
-                    response = {
-                        "success": False,
-                        "action": "forfeit",
-                        "error": "The player isn't in a game yet"
-                    }
-                    await connection.send(json.dumps(response))
-                    continue
-
-                # Passes the move to the game manager and sends back the outcome
-                # TODO: uncomment the lines below once the forfeit function has been implemented
-                result = game_manager.end_game()
-                await connection.send(json.dumps(result))
-
-                # Notify the opponent if the move was successful
-                if(result["success"]):
-                    await opponent.send(json.dumps(result))
-
-            # INVALID ACTION CASE
-            else:
-                response = {
-                            "success": False,
-                            "error": "Invalid action"
-                            }
+                # Notify the player that they have successfully quit
+                response["action"] = action
                 await connection.send(json.dumps(response))
 
-    except Exception:
-        print("Connection closed.")
+            # SYMMETRICAL CASES
+            else:
+                game_manager, opponent = players.get(connection, None)
+
+                # Check if the player is in a game
+                if game_manager is None:
+                    response = {
+                        "success": False,
+                        "action": action,
+                        "error": "The player isn't in a game yet"
+                    }
+                    await connection.send(json.dumps(response))
+                    continue
+
+                # PLACE PIECE CASE
+                if action == "place_piece":
+                    result = game_manager.place_piece(params)
+
+                # REMOVE PIECE CASE
+                elif action == "remove_piece":
+                    result = game_manager.remove_piece(params)
+
+                # MOVE PIECE CASE
+                elif action == "move_piece":
+                    result = game_manager.move_piece(params)
+
+                # INVALID ACTION CASE
+                else:
+                    result = {
+                        "success": False,
+                        "error": "Invalid action"
+                    }
+
+                # Notify the player of the game's results
+                await connection.send(json.dumps(result))
+
+                # Notify the opponent if the move was successful
+                if (result["success"]):
+                    await opponent.send(json.dumps(result))
+
+                # Notify both players if the last move ended the game
+                if "game_over" in result:
+                    result = game_manager.end_game()
+
+                    # Tell the player who made the move that they won
+                    await connection.send(json.dumps(result))
+
+                    # Tell the other player that they lost
+                    result["won"] = False
+                    result["msg"] = "You Lost."
+                    await opponent.send(json.dumps(result))
+
+                    # Remove all references to the player websockets and the game manager
+                    await close_connection(connection)
+
+    except Exception as e:
+        print("Connection closed: ", e)
+
+        # Remove all references to the player websockets and the game manager
         await close_connection(connection)
 
 

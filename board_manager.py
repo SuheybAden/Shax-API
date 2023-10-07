@@ -41,7 +41,7 @@ class BoardManager:
 
         # Adjacency list for keeping track of all the nodes the pieces can be placed in
         # TODO: find a better word than "nodes" and maybe rename this variable
-        self.adjacent_pieces = {  # Outer Square Nodes
+        self.adjacent_pieces: dict = {  # Outer Square Nodes
             (0, 0): [(0, 3), (3, 0)],
             (0, 3): [(0, 0), (1, 3), (0, 6)],
             (0, 6): [(0, 3), (3, 6)],
@@ -67,7 +67,7 @@ class BoardManager:
             (4, 4): [(3, 4), (4, 3)],
             (4, 3): [(4, 4), (5, 3), (4, 2)],
             (4, 2): [(4, 3), (3, 2)],
-            (3, 2): [(4, 2), (3, 1), (2, 2)],
+            (3, 2): [(4, 2), (3, 1), (2, 2)]
         }
 
     # Starts a game between two players
@@ -115,47 +115,43 @@ class BoardManager:
     # Places a piece on the board
 
     def place_piece(self, params):
+        # Default response for placing a piece
+        error_response = {"success": False,
+                          "action": "place_piece",
+                          "error": "",
+                          "next_player": self.current_turn,
+                          "next_state": self.game_state.name}
+
         # Checks if the game is in the placement stage yet
         if self.game_state != GameState.PLACEMENT:
-            return {"success": False,
-                    "board_state": self.board_state.tolist(),
-                    "error": "The game is not in the placement stage",
-                    "next_state": self.game_state.name}
+            error_response["error"] = "The game is not in the placement stage"
+            return error_response
 
         # Load all the necessary input parameters
         try:
             x: int = params["x"]
             y: int = params["y"]
-            player: int = params["player"]
+            player: int = params["player_ID"]
 
         except Exception:
-            return {"success": False,
-                    "error": "Couldn't load all the necessary parameters"}
+            error_response["error"] = "Couldn't load all the necessary parameters"
+            return error_response
 
         # Checks if it's the player's turn
         if player != self.players[self.current_turn]:
-            return {"success": False,
-                    "action": "place_piece",
-                    "board_state": self.board_state.tolist(),
-                    "error": "It's not the player's turn yet",
-                    "current_turn": self.current_turn,
-                    "next_state": self.game_state.name}
+            error_response["error"] = "It's not the player's turn yet"
+            return error_response
 
         # Check if the piece is being played in a valid spot
         valid_spot = self._is_valid_spot(x, y)
 
         if valid_spot is None:
-            return {"success": False,
-                    "action": "place_piece",
-                    "board_state": self.board_state.tolist(),
-                    "error": "The current placement is at an invalid spot",
-                    "new_x": x,
-                    "new_y": y,
-                    "current_turn": self.current_turn,
-                    "next_state": self.game_state.name}
+            error_response["error"] = "Can't place piece at an invalid node"
+            return error_response
 
         # Generate an ID for the new game piece
-        new_ID = (self.total_pieces[self.current_turn] << self.ID_SHIFT) | self.current_turn
+        new_ID: int = int((self.total_pieces[self.current_turn]
+                          << self.ID_SHIFT) | self.current_turn)
 
         # Update the board's state with the new game piece
         self.board_state[y][x] = new_ID
@@ -173,7 +169,9 @@ class BoardManager:
         # If all the pieces have been placed,
         # go on to the first removal state of the game
         if np.all(self.total_pieces >= self.MAX_PIECES):
-            if self.first_to_jare is not None:
+            self.game_state = GameState.FIRST_REMOVAL
+
+            if self.first_to_jare != None:
                 self.current_turn = self.first_to_jare
 
             # If no one made a jare in the placement stage, player 2 goes first
@@ -183,59 +181,49 @@ class BoardManager:
         return {"success": True,
                 "action": "place_piece",
                 "board_state": self.board_state.tolist(),
-                "error": None,
-                "new_piece_id": new_ID,
+                "new_piece_ID": new_ID,
                 "new_x": x,
                 "new_y": y,
-                "current_turn": self.current_turn,
+                "next_player": self.current_turn,
                 "next_state": self.game_state.name}
 
     # Removes a game piece from the board
     def remove_piece(self, params):
+        error_response = {"success": False,
+                          "action": "remove_piece",
+                          "error": "",
+                          "next_player": self.current_turn,
+                          "next_state": self.game_state.name}
+
         # Checks if the game is in one of the removal stages yet
         if self.game_state != GameState.REMOVAL and self.game_state != GameState.FIRST_REMOVAL:
-            return {"success": False,
-                    "board_state": self.board_state.tolist(),
-                    "error": "The game is not in the removal stage",
-                    "next_state": self.game_state.name}
+            error_response["error"] = "The game is not in the removal stage"
+            return error_response
 
         # Load all the necessary input parameters
         try:
             piece_ID: int = params["piece_ID"]
-            player: int = params["player"]
+            player: int = params["player_ID"]
         except Exception:
-            return {"success": False,
-                    "error": "Couldn't load all the necessary parameters"}
+            error_response["error"] = "Couldn't load all the necessary parameters"
+            return error_response
 
         # Checks if it's not the player's turn yet
         if player != self.players[self.current_turn]:
-            return {"success": False,
-                    "action": "remove_piece",
-                    "board_state": self.board_state.tolist(),
-                    "error": "It's not the player's turn yet",
-                    "current_turn": self.current_turn,
-                    "next_state": self.game_state.name}
+            error_response["error"] = "It's not the player's turn yet"
+            return error_response
 
         # Checks if the piece exists
         if piece_ID not in self.board_state:
-            return {"success": False,
-                    "action": "remove_piece",
-                    "board_state": self.board_state.tolist(),
-                    "error": "The piece to be removed doesn't exist",
-                    "removed_piece": piece_ID,
-                    "current_turn": self.current_turn,
-                    "next_state": self.game_state.name}
+            error_response["error"] = "The piece to be removed doesn't exist"
+            return error_response
 
         # Checks if the piece belongs to the current player
         piece_owner = piece_ID & (2**self.ID_SHIFT - 1)
 
         if piece_owner == self.current_turn:
-            return {"success": False,
-                    "action": "remove_piece",
-                    "board_state": self.board_state.tolist(),
-                    "error": "The piece belongs to the current player",
-                    "current_turn": self.current_turn,
-                    "next_state": self.game_state.name}
+            error_response["error"] = "This piece belongs to the current player"
+            return error_response
 
         # Remove the piece from the board
         self.board_state[self.board_state == piece_ID] = -1
@@ -247,11 +235,13 @@ class BoardManager:
         if (self._is_game_over()):
             self.game_state = GameState.STOPPED
             return {"success": True,
+                    "game_over": True,
                     "action": "remove_piece",
                     "board_state": self.board_state.tolist(),
                     "removed_piece": piece_ID,
-                    "current_turn": self.current_turn,
-                    "next_state": self.game_state.name}
+                    "next_player": self.current_turn,
+                    "next_state": self.game_state.name,
+                    "active_pieces": []}
 
         active_pieces = []
 
@@ -275,52 +265,44 @@ class BoardManager:
                 "board_state": self.board_state.tolist(),
                 "removed_piece": piece_ID,
                 "active_pieces": active_pieces,
-                "current_turn": self.current_turn,
+                "next_player": self.current_turn,
                 "next_state": self.game_state.name}
 
     # Moves a game piece from one spot to another
     def move_piece(self, params):
+        error_response = {"success": False,
+                          "action": "move_piece",
+                          "error": "",
+                          "board_state": self.board_state.tolist(),
+                          "next_player": self.current_turn,
+                          "next_state": self.game_state.name}
+
         # Checks if the game is in the movement stage
         if self.game_state != GameState.MOVEMENT:
-            return {"success": False,
-                    "action": "move_piece",
-                    "error": "The game is not in the movement stage",
-                    "board_state": self.board_state.tolist(),
-                    "current_turn": self.current_turn,
-                    "next_state": self.game_state.name}
+            error_response["error"] = "The game is not in the movement stage"
+            return error_response
 
         # Load all the necessary input parameters
         try:
-            x: int = params["x"]
-            y: int = params["y"]
+            x: int = params["new_x"]
+            y: int = params["new_y"]
             piece_ID = params["piece_ID"]
-            player = params["player"]
+            player = params["player_ID"]
 
         except Exception:
-            return {"success": False,
-                    "error": "Couldn't load all the necessary parameters"}
+            error_response["error"] = "Couldn't load all the necessary parameters"
+            return error_response
 
         # Checks if it's the player's turn
         if player != self.players[self.current_turn]:
-            return {"success": False,
-                    "action": "move_piece",
-                    "board_state": self.board_state.tolist(),
-                    "error": "It's not the player's turn yet",
-                    "current_turn": self.current_turn,
-                    "next_state": self.game_state.name}
+            error_response["error"] = "It's not the player's turn yet"
+            return error_response
 
         # Checks if the new coordinates are a valid spot on the board
         valid_spot = self._is_valid_spot(x, y)
-
         if valid_spot is None:
-            return {"success": False,
-                    "action": "move_piece",
-                    "board_state": self.board_state.tolist(),
-                    "error": "The piece was moved to an invalid spot",
-                    "new_x": x,
-                    "new_y": y,
-                    "current_turn": self.current_turn,
-                    "next_state": self.game_state.name}
+            error_response["error"] = "Can't move the piece to an invalid spot"
+            return error_response
 
         # Get the old coordinates of the game piece
         old_x, old_y = self._piece_ID_to_coord(piece_ID)
@@ -329,20 +311,15 @@ class BoardManager:
         is_adjacent = valid_spot in self.adjacent_pieces[(old_x, old_y)]
 
         if not is_adjacent:
-            return {"success": False,
-                    "action": "move_piece",
-                    "board_state": self.board_state.tolist(),
-                    "error": "The piece was moved to a nonadjacent spot",
-                    "new_x": x,
-                    "new_y": y,
-                    "current_turn": self.current_turn,
-                    "next_state": self.game_state.name}
+            error_response["error"] = "Can't move the piece to a nonadjacent spot"
+            return error_response
 
         # Update the board's state
         self.board_state[old_y][old_x] = -1
         self.board_state[valid_spot[1]][valid_spot[0]] = piece_ID
 
         new_jare = self._made_new_jare()
+        active_pieces = []
 
         # Lets the current player go to the removal state if they made a new jare
         if new_jare:
@@ -367,16 +344,16 @@ class BoardManager:
                 "moved_piece": piece_ID,
                 "new_x": valid_spot[0],
                 "new_y": valid_spot[1],
-                "current_turn": self.current_turn,
-                "next_state": self.game_state.name}
+                "next_player": self.current_turn,
+                "next_state": self.game_state.name,
+                "active_pieces": active_pieces}
 
     def end_game(self):
         self.game_state = GameState.STOPPED
         return {"success": True,
-                "action": "remove_piece",
-                "board_state": self.board_state.tolist(),
-                "current_turn": self.current_turn,
-                "next_state": self.game_state.name}
+                "action": "game_over",
+                "won": True,
+                "msg": "You Won!"}
 
     # ***************************** HELPER FUNCTIONS ***************************************
     def _is_valid_spot(self, x, y):
@@ -407,7 +384,6 @@ class BoardManager:
         return index[1][0], index[0][0]
 
     # Takes in a piece ID and returns all the board locations that piece can move to
-
     def _get_possible_moves(self, piece_ID):
         # Stores all the possible moves of the piece
         # 0 means a piece can't move to that index
@@ -430,7 +406,7 @@ class BoardManager:
         # Get the indices of the player's pieces
         # TODO: check if there is a better way to do this
         board_copy = np.copy(self.board_state)
-        non_null = np.logical_and(board_copy is not None, board_copy != -1)
+        non_null = np.logical_and(board_copy != None, board_copy != -1)
         board_copy[non_null] = board_copy[non_null] & (2**self.ID_SHIFT - 1)
         indices = np.where(board_copy == self.current_turn)
 
@@ -449,11 +425,10 @@ class BoardManager:
         pieces_in_jare = []
         neighboring_ally = None
         total_jare = 0
-
         # Get the indices of the player's pieces
         # TODO: check if there is a better way to do this
         board_copy = np.copy(self.board_state)
-        non_null = np.logical_and(board_copy is not None, board_copy != -1)
+        non_null = np.logical_and(board_copy != None, board_copy != -1)
         board_copy[non_null] = board_copy[non_null] & (2**self.ID_SHIFT - 1)
         indices = np.where(board_copy == self.current_turn)
 
@@ -471,6 +446,7 @@ class BoardManager:
             for neighbor_coord in self.adjacent_pieces[board_coord]:
 
                 neighbor_id = self.board_state[neighbor_coord[1]][neighbor_coord[0]]
+
                 if neighbor_coord in pieces_in_jare:
                     # print("The neighbor at " + str(neighbor_coord) + " is already in a jare\n")
                     continue
