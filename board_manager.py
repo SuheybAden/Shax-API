@@ -131,7 +131,7 @@ class BoardManager:
         try:
             x: int = params["x"]
             y: int = params["y"]
-            player: int = params["player_ID"]
+            player: int = params["player_key"]
 
         except Exception:
             error_response["error"] = "Couldn't load all the necessary parameters"
@@ -203,7 +203,7 @@ class BoardManager:
         # Load all the necessary input parameters
         try:
             piece_ID: int = params["piece_ID"]
-            player: int = params["player_ID"]
+            player: int = params["player_key"]
         except Exception:
             error_response["error"] = "Couldn't load all the necessary parameters"
             return error_response
@@ -287,7 +287,7 @@ class BoardManager:
             x: int = params["new_x"]
             y: int = params["new_y"]
             piece_ID = params["piece_ID"]
-            player = params["player_ID"]
+            player = params["player_key"]
 
         except Exception:
             error_response["error"] = "Couldn't load all the necessary parameters"

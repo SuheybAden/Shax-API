@@ -36,13 +36,11 @@ async def join_game(connection, params):
         await connection.send(json.dumps(response))
         return
 
+    # Check if the connection is requesting for a local game
+    is_local = (bool)((game_type & (1 << 0x0)) >> 0x0)
+
     # Check if there is another player in the waiting list who's waiting for the same type of game
-    if game_type in game_types:
-        opponent = game_types.pop(game_type)
-
-        # Remove the other player from the waiting list
-        waiting_list.pop(opponent)
-
+    if game_type in game_types or is_local:
         # Generate random IDs for each player
         n = 1000
         p1_id = 1  # secrets.randbelow(n)
@@ -51,30 +49,50 @@ async def join_game(connection, params):
         game_params = {"min_pieces": 2, "max_pieces": 7,
                        "p1_id": p1_id, "p2_id": p2_id}
 
-        # Add both players to a new game
+        # Start a new game
         game_manager: BoardManager = BoardManager(game_params)
         game_manager.start_game(game_params)
+
+        # Loads the adjacent pieces array into a JSON-compatible format
+        adjacent_pieces_json = {str(key): [(int(val1), int(val2)) for val1, val2 in value]
+                                for key, value in game_manager.adjacent_pieces.items()}
+
+        # Generate a default API response
+        response = {
+            "success": True,
+            "waiting": False,
+            "player1_key": p1_id,
+            "player2_key": p2_id,
+            "player_num": 0,
+            "action": "join_game",
+            "adjacent_pieces": adjacent_pieces_json
+        }
+
+        if is_local:
+            opponent = connection
+            await connection.send(json.dumps(response))
+
+        else:
+            # Finds the other player and removes them from the waiting list
+            opponent = game_types.pop(game_type)
+            waiting_list.pop(opponent)
+
+            # Notify each player that a game was started
+            # Give each of them their respective player keys
+            response["player1_key"] = p1_id
+            response["player2_key"] = 0
+            await connection.send(json.dumps(response))
+
+            response["player1_key"] = 0
+            response["player2_key"] = p2_id
+            response["player_num"] = 1
+            await opponent.send(json.dumps(response))
 
         # Update all references
         games[game_manager] = (connection, opponent)
         players[connection] = (game_manager, opponent)
         players[opponent] = (game_manager, connection)
 
-        adjacent_pieces_json = {str(key): [(int(val1), int(val2)) for val1, val2 in value]
-                                for key, value in game_manager.adjacent_pieces.items()}
-        response = {
-            "success": True,
-            "waiting": False,
-            "player_ID": p1_id,
-            "player_num": 0,
-            "action": "join_game",
-            "adjacent_pieces": adjacent_pieces_json
-        }
-        await connection.send(json.dumps(response))
-
-        response["player_ID"] = p2_id
-        response["player_num"] = 1
-        await opponent.send(json.dumps(response))
         return
 
     # Otherwise, add the new player to the waiting list
@@ -93,18 +111,27 @@ async def close_connection(connection):
     # If they were in a game, remove any remaining references to the player and their opponent
     if connection in players:
         board_manager, opponent = players.pop(connection, None)
-        players.pop(opponent, None)
 
-        # Tell the other player that their opponent left
+        # Generate defualt API response
         result = {"success": True,
                   "action": "end",
                   "won": True,
-                  "msg": "Opponent Forfeited."}
-        await opponent.send(json.dumps(result))
+                  "msg": "Game Over"}
 
-        # Generate message for telling the player that they forfeited
-        result["won"] = False
-        result["msg"] = "You Forfeited."
+        # Check if it was a local game
+        is_local = connection == opponent
+
+        if not is_local:
+            players.pop(opponent, None)
+
+            # Tell the other player that their opponent left
+            result["msg"] = "Opponent Forfeited."
+            await opponent.send(json.dumps(result))
+
+            # Generate message for telling the player that they forfeited
+            result["won"] = False
+            result["msg"] = "You Forfeited."
+
         return result
 
     # Remove any references to the disconnected player in the waiting list
@@ -122,7 +149,7 @@ async def close_connection(connection):
     else:
         # Generate the message for telling the player that they left the waiting list
         result = {"success": False,
-                  "msg": "You are neither in a waiting list or game"}
+                  "error": "You are neither in a waiting list or game"}
 
         return result
 
