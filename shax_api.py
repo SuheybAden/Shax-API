@@ -4,7 +4,7 @@ from websockets.server import WebSocketServerProtocol
 import json
 import secrets
 
-from board_manager import BoardManager
+from board_manager import BoardManager, GameState
 
 
 # Game type (key) -> Player websocket(value)
@@ -25,14 +25,26 @@ players: dict[WebSocketServerProtocol, list[BoardManager, WebSocketServerProtoco
 # a new game is started between it and the new connection.
 # Otherwise, the new connection is put into the waiting list
 async def join_game(connection, params):
+    # Generate a default API response
+    response = {
+        "success": True,
+        "action": "join_game",
+        "error": "",
+        "waiting": False,
+        "player1_key": 0,
+        "player2_key": 0,
+        "player_num": 0,
+        "adjacent_pieces": {},
+        "next_state": GameState.STOPPED.name,
+        "next_player": 0
+    }
+
     # Load all the necessary parameters
     try:
         game_type: int = params["game_type"]
     except Exception:
-        response = {
-            "success": False,
-            "error": "Wasn't given all the necessary parameters for joining a game",
-        }
+        response["success"] = False
+        response["error"] = "Wasn't given all the necessary parameters for joining a game"
         await connection.send(json.dumps(response))
         return
 
@@ -51,25 +63,19 @@ async def join_game(connection, params):
 
         # Start a new game
         game_manager: BoardManager = BoardManager(game_params)
-        game_manager.start_game(game_params)
+        response["next_player"] = game_manager.start_game(game_params)
+        response["next_state"] = game_manager.game_state.name
 
         # Loads the adjacent pieces array into a JSON-compatible format
         adjacent_pieces_json = {str(key): [(int(val1), int(val2)) for val1, val2 in value]
                                 for key, value in game_manager.adjacent_pieces.items()}
-
-        # Generate a default API response
-        response = {
-            "success": True,
-            "waiting": False,
-            "player1_key": p1_id,
-            "player2_key": p2_id,
-            "player_num": 0,
-            "action": "join_game",
-            "adjacent_pieces": adjacent_pieces_json
-        }
+        response["adjacent_pieces"] = adjacent_pieces_json
 
         if is_local:
             opponent = connection
+
+            response["player1_key"] = p1_id
+            response["player2_key"] = p2_id
             await connection.send(json.dumps(response))
 
         else:
@@ -101,7 +107,7 @@ async def join_game(connection, params):
         waiting_list[connection] = game_type
 
         print("waiting")
-        response = {"success": True, "waiting": True, "action": "join_game", "adjacent_pieces": {}}
+        response["waiting"] = True
         await connection.send(json.dumps(response))
         return
 
@@ -244,8 +250,8 @@ async def handler(connection):
                 # Notify the player of the game's results
                 await connection.send(json.dumps(result))
 
-                # Notify the opponent if the move was successful
-                if (result["success"]):
+                # Notify the opponent if the move was successful and the game is remote
+                if result["success"] and connection != opponent:
                     await opponent.send(json.dumps(result))
 
                 # Notify both players if the last move ended the game

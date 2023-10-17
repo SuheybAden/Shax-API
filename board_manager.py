@@ -112,8 +112,9 @@ class BoardManager:
 
         self.game_running = True
 
-    # Places a piece on the board
+        return self.current_turn
 
+    # Places a piece on the board
     def place_piece(self, params):
         # Default response for placing a piece
         error_response = {"success": False,
