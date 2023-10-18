@@ -233,8 +233,18 @@ async def handler(connection):
                         print("Couldn't load all the necessary parameters")
                         continue
 
-                    result = game_manager.place_piece(
+                    new_ID, x, y, error = game_manager.place_piece(
                         params["x"], params["y"], params["player_key"])
+
+                    result = {"success": error == "",
+                              "action": "place_piece",
+                              "error": error,
+                              "board_state": game_manager.board_state.tolist(),
+                              "new_piece_ID": new_ID,
+                              "new_x": x,
+                              "new_y": y,
+                              "next_player": game_manager.current_turn,
+                              "next_state": game_manager.game_state.name}
 
                 # REMOVE PIECE CASE
                 elif action == "remove_piece":
@@ -244,17 +254,41 @@ async def handler(connection):
                         print("Couldn't load all the necessary parameters")
                         continue
 
-                    result = game_manager.remove_piece(params["piece_ID"], params["player_key"])
+                    piece_ID, game_over, active_pieces, error = game_manager.remove_piece(
+                        params["piece_ID"], params["player_key"])
+
+                    result = {"success": error == "",
+                              "action": "remove_piece",
+                              "error": error,
+                              "board_state": game_manager.board_state.tolist(),
+                              "game_over": game_over,
+                              "removed_piece": piece_ID,
+                              "active_pieces": active_pieces,
+                              "next_player": game_manager.current_turn,
+                              "next_state": game_manager.game_state.name}
 
                 # MOVE PIECE CASE
                 elif action == "move_piece":
                     # Check that the request contains all the required keys
-                    required_keys = ("new_x", "new_y", "piece_ID", "player_key")
+                    required_keys = ("new_x", "new_y",
+                                     "piece_ID", "player_key")
                     if not all(key in params for key in required_keys):
                         print("Couldn't load all the necessary parameters")
                         continue
 
-                    result = game_manager.move_piece(params["new_x"], params["new_y"], params["piece_ID"], params["player_key"])
+                    x, y, piece_ID, active_pieces, error = game_manager.move_piece(
+                        params["new_x"], params["new_y"], params["piece_ID"], params["player_key"])
+
+                    result = {"success": error == "",
+                              "action": "move_piece",
+                              "board_state": game_manager.board_state.tolist(),
+                              "error": error,
+                              "moved_piece": piece_ID,
+                              "new_x": x,
+                              "new_y": y,
+                              "next_player": game_manager.current_turn,
+                              "next_state": game_manager.game_state.name,
+                              "active_pieces": active_pieces}
 
                 # INVALID ACTION CASE
                 else:
@@ -271,7 +305,7 @@ async def handler(connection):
                     await opponent.send(json.dumps(result))
 
                 # Notify both players if the last move ended the game
-                if "game_over" in result:
+                if "game_over" in result and result["game_over"]:
                     result = game_manager.end_game()
 
                     # Tell the player who made the move that they won

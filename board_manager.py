@@ -104,36 +104,27 @@ class BoardManager:
 
     # Places a piece on the board
     def place_piece(self, x, y, player_key):
-        # Default response for placing a piece
-        response = {"success": False,
-                    "action": "place_piece",
-                    "error": "",
-                    "board_state": self.board_state.tolist(),
-                    "new_piece_ID": 0,
-                    "new_x": 0,
-                    "new_y": 0,
-                    "next_player": self.current_turn,
-                    "next_state": self.game_state.name}
+        error = ""
+        new_ID = 0
 
         # Checks if the game is in the placement stage yet
         if self.game_state != GameState.PLACEMENT:
-            response["error"] = "The game is not in the placement stage"
-            return response
+            error = "The game is not in the placement stage"
+            return [new_ID, x, y, error]
 
         # Checks if it's the player's turn
         if player_key != self.players[self.current_turn]:
-            response["error"] = "It's not the player's turn yet"
-            return response
+            error = "It's not the player's turn yet"
+            return [new_ID, x, y, error]
 
         # Check if the piece is being played in a valid spot
         valid_spot = self._is_valid_spot(x, y)
-
         if valid_spot is None:
-            response["error"] = "Can't place piece at an invalid node"
-            return response
+            error = "Can't place piece at an invalid node"
+            return [new_ID, x, y, error]
 
         # Generate an ID for the new game piece
-        new_ID: int = int((self.total_pieces[self.current_turn]
+        new_ID = int((self.total_pieces[self.current_turn]
                           << self.ID_SHIFT) | self.current_turn)
 
         # Update the board's state with the new game piece
@@ -161,44 +152,35 @@ class BoardManager:
             else:
                 self.current_turn = 1
 
-        return {"success": True,
-                "action": "place_piece",
-                "board_state": self.board_state.tolist(),
-                "new_piece_ID": new_ID,
-                "new_x": x,
-                "new_y": y,
-                "next_player": self.current_turn,
-                "next_state": self.game_state.name}
+        return [new_ID, x, y, error]
 
     # Removes a game piece from the board
     def remove_piece(self, piece_ID, player_key):
-        response = {"success": False,
-                    "action": "remove_piece",
-                    "error": "",
-                    "next_player": self.current_turn,
-                    "next_state": self.game_state.name}
+        error = ""
+        game_over = False
+        active_pieces = []
 
         # Checks if the game is in one of the removal stages yet
         if self.game_state != GameState.REMOVAL and self.game_state != GameState.FIRST_REMOVAL:
-            response["error"] = "The game is not in the removal stage"
-            return response
+            error = "The game is not in the removal stage"
+            return[piece_ID, game_over, active_pieces, error]
 
         # Checks if it's not the player's turn yet
         if player_key != self.players[self.current_turn]:
-            response["error"] = "It's not the player's turn yet"
-            return response
+            error = "It's not the player's turn yet"
+            return[piece_ID, game_over, active_pieces, error]
 
         # Checks if the piece exists
         if piece_ID not in self.board_state:
-            response["error"] = "The piece to be removed doesn't exist"
-            return response
+            error = "The piece to be removed doesn't exist"
+            return[piece_ID, game_over, active_pieces, error]
 
         # Checks if the piece belongs to the current player
         piece_owner = piece_ID & (2**self.ID_SHIFT - 1)
 
         if piece_owner == self.current_turn:
-            response["error"] = "This piece belongs to the current player"
-            return response
+            error = "This piece belongs to the current player"
+            return[piece_ID, game_over, active_pieces, error]
 
         # Remove the piece from the board
         self.board_state[self.board_state == piece_ID] = -1
@@ -209,16 +191,8 @@ class BoardManager:
         # End the game if one of the players won
         if (self._is_game_over()):
             self.game_state = GameState.STOPPED
-            return {"success": True,
-                    "game_over": True,
-                    "action": "remove_piece",
-                    "board_state": self.board_state.tolist(),
-                    "removed_piece": piece_ID,
-                    "next_player": self.current_turn,
-                    "next_state": self.game_state.name,
-                    "active_pieces": []}
-
-        active_pieces = []
+            game_over = True
+            return[piece_ID, game_over, active_pieces, error]
 
         # If this is the very first removal stage,
         # every player must have a chance to remove a piece before going on to the movement stage
@@ -235,38 +209,28 @@ class BoardManager:
             self.game_state = GameState.MOVEMENT
             active_pieces = self._get_active_pieces()
 
-        return {"success": True,
-                "action": "remove_piece",
-                "board_state": self.board_state.tolist(),
-                "removed_piece": piece_ID,
-                "active_pieces": active_pieces,
-                "next_player": self.current_turn,
-                "next_state": self.game_state.name}
+        return[piece_ID, game_over, active_pieces, error]
 
     # Moves a game piece from one spot to another
     def move_piece(self, x, y, piece_ID, player_key):
-        response = {"success": False,
-                    "action": "move_piece",
-                    "error": "",
-                    "board_state": self.board_state.tolist(),
-                    "next_player": self.current_turn,
-                    "next_state": self.game_state.name}
+        error = ""
+        active_pieces = []
 
         # Checks if the game is in the movement stage
         if self.game_state != GameState.MOVEMENT:
-            response["error"] = "The game is not in the movement stage"
-            return response
+            error = "The game is not in the movement stage"
+            return [x, y, piece_ID, active_pieces, error]
 
         # Checks if it's the player's turn
         if player_key != self.players[self.current_turn]:
-            response["error"] = "It's not the player's turn yet"
-            return response
+            error = "It's not the player's turn yet"
+            return [x, y, piece_ID, active_pieces, error]
 
         # Checks if the new coordinates are a valid spot on the board
         valid_spot = self._is_valid_spot(x, y)
         if valid_spot is None:
-            response["error"] = "Can't move the piece to an invalid spot"
-            return response
+            error = "Can't move the piece to an invalid spot"
+            return [x, y, piece_ID, active_pieces, error]
 
         # Get the old coordinates of the game piece
         old_x, old_y = self._piece_ID_to_coord(piece_ID)
@@ -275,15 +239,14 @@ class BoardManager:
         is_adjacent = valid_spot in self.adjacent_pieces[(old_x, old_y)]
 
         if not is_adjacent:
-            response["error"] = "Can't move the piece to a nonadjacent spot"
-            return response
+            error = "Can't move the piece to a nonadjacent spot"
+            return [x, y, piece_ID, active_pieces, error]
 
         # Update the board's state
         self.board_state[old_y][old_x] = -1
         self.board_state[valid_spot[1]][valid_spot[0]] = piece_ID
 
         new_jare = self._made_new_jare()
-        active_pieces = []
 
         # Lets the current player go to the removal state if they made a new jare
         if new_jare:
@@ -301,16 +264,7 @@ class BoardManager:
                       "Going back to the previous player.")
                 self.current_turn = (self.current_turn - 1) % self.TOTAL_PLAYERS
 
-        return {"success": True,
-                "action": "move_piece",
-                "board_state": self.board_state.tolist(),
-                "error": "",
-                "moved_piece": piece_ID,
-                "new_x": valid_spot[0],
-                "new_y": valid_spot[1],
-                "next_player": self.current_turn,
-                "next_state": self.game_state.name,
-                "active_pieces": active_pieces}
+        return [valid_spot[0], valid_spot[1], piece_ID, active_pieces, error]
 
     def end_game(self):
         self.game_state = GameState.STOPPED
