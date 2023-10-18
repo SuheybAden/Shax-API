@@ -16,18 +16,12 @@ class GameState(Enum):
 class BoardManager:
     # Constructor function
     # Sets all the constant variables for the game
-    def __init__(self, params) -> None:
-        # Load all the necessary input parameters
-        try:
-            # Minimum number of pieces a player can have or its game over
-            self.MIN_PIECES: int = params["min_pieces"]
+    def __init__(self, min_pieces, max_pieces) -> None:
+        # Minimum number of pieces a player can have or its game over
+        self.MIN_PIECES: int = min_pieces
 
-            # Maximum number of pieces each player can have
-            self.MAX_PIECES: int = params["max_pieces"]
-
-        except Exception:
-            return {"success": False,
-                    "error": "Couldn't load all the necessary parameters"}
+        # Maximum number of pieces each player can have
+        self.MAX_PIECES: int = max_pieces
 
         # Total number of players
         self.TOTAL_PLAYERS = 2
@@ -72,17 +66,11 @@ class BoardManager:
 
     # Starts a game between two players
     # Initializes all the variables that keep track of the state of the game
-
-    def start_game(self, params):
-        # Load all the necessary input parameters
-        try:
-            self.players: list[int] = []
-            self.players.append(params["p1_id"])
-            self.players.append(params["p2_id"])
-
-        except Exception:
-            return {"success": False,
-                    "error": "Couldn't load all the necessary parameters"}
+    def start_game(self, p1_id, p2_id):
+        # Save the player IDs
+        self.players: list = []
+        self.players.append(p1_id)
+        self.players.append(p2_id)
 
         # Set which player goes first
         self.current_turn = 0
@@ -115,7 +103,7 @@ class BoardManager:
         return self.current_turn
 
     # Places a piece on the board
-    def place_piece(self, params):
+    def place_piece(self, x, y, player_key):
         # Default response for placing a piece
         response = {"success": False,
                     "action": "place_piece",
@@ -132,18 +120,8 @@ class BoardManager:
             response["error"] = "The game is not in the placement stage"
             return response
 
-        # Load all the necessary input parameters
-        try:
-            x: int = params["x"]
-            y: int = params["y"]
-            player: int = params["player_key"]
-
-        except Exception:
-            response["error"] = "Couldn't load all the necessary parameters"
-            return response
-
         # Checks if it's the player's turn
-        if player != self.players[self.current_turn]:
+        if player_key != self.players[self.current_turn]:
             response["error"] = "It's not the player's turn yet"
             return response
 
@@ -193,7 +171,7 @@ class BoardManager:
                 "next_state": self.game_state.name}
 
     # Removes a game piece from the board
-    def remove_piece(self, params):
+    def remove_piece(self, piece_ID, player_key):
         response = {"success": False,
                     "action": "remove_piece",
                     "error": "",
@@ -205,16 +183,8 @@ class BoardManager:
             response["error"] = "The game is not in the removal stage"
             return response
 
-        # Load all the necessary input parameters
-        try:
-            piece_ID: int = params["piece_ID"]
-            player: int = params["player_key"]
-        except Exception:
-            response["error"] = "Couldn't load all the necessary parameters"
-            return response
-
         # Checks if it's not the player's turn yet
-        if player != self.players[self.current_turn]:
+        if player_key != self.players[self.current_turn]:
             response["error"] = "It's not the player's turn yet"
             return response
 
@@ -274,7 +244,7 @@ class BoardManager:
                 "next_state": self.game_state.name}
 
     # Moves a game piece from one spot to another
-    def move_piece(self, params):
+    def move_piece(self, x, y, piece_ID, player_key):
         response = {"success": False,
                     "action": "move_piece",
                     "error": "",
@@ -287,19 +257,8 @@ class BoardManager:
             response["error"] = "The game is not in the movement stage"
             return response
 
-        # Load all the necessary input parameters
-        try:
-            x: int = params["new_x"]
-            y: int = params["new_y"]
-            piece_ID = params["piece_ID"]
-            player = params["player_key"]
-
-        except Exception:
-            response["error"] = "Couldn't load all the necessary parameters"
-            return response
-
         # Checks if it's the player's turn
-        if player != self.players[self.current_turn]:
+        if player_key != self.players[self.current_turn]:
             response["error"] = "It's not the player's turn yet"
             return response
 

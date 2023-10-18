@@ -8,16 +8,16 @@ from board_manager import BoardManager, GameState
 
 
 # Game type (key) -> Player websocket(value)
-game_types: dict[int, WebSocketServerProtocol] = {}
+game_types: dict = {}
 
 # dict of player websockets that are in the waiting list
-waiting_list: dict[WebSocketServerProtocol, int] = {}
+waiting_list: dict = {}
 
 # BoardManager (key) -> List of Player Websockets (value)
-games: dict[BoardManager, list[WebSocketServerProtocol, WebSocketServerProtocol]] = {}
+games: dict = {}
 
 # Player Websocket(key) -> List containing the BoardManager and opposing player (value)
-players: dict[WebSocketServerProtocol, list[BoardManager, WebSocketServerProtocol]] = {}
+players: dict = {}
 
 
 # Takes in a new connection looking for a game.
@@ -58,12 +58,10 @@ async def join_game(connection, params):
         p1_id = 1  # secrets.randbelow(n)
         p2_id = 2  # secrets.randbelow(n)
 
-        game_params = {"min_pieces": 2, "max_pieces": 7,
-                       "p1_id": p1_id, "p2_id": p2_id}
-
         # Start a new game
-        game_manager: BoardManager = BoardManager(game_params)
-        response["next_player"] = game_manager.start_game(game_params)
+        game_manager: BoardManager = BoardManager(min_pieces=2, max_pieces=7)
+        response["next_player"] = game_manager.start_game(
+            p1_id=p1_id, p2_id=p2_id)
         response["next_state"] = game_manager.game_state.name
 
         # Loads the adjacent pieces array into a JSON-compatible format
@@ -102,14 +100,13 @@ async def join_game(connection, params):
         return
 
     # Otherwise, add the new player to the waiting list
-    else:
-        game_types[game_type] = connection
-        waiting_list[connection] = game_type
+    game_types[game_type] = connection
+    waiting_list[connection] = game_type
 
-        print("waiting")
-        response["waiting"] = True
-        await connection.send(json.dumps(response))
-        return
+    print("waiting")
+    response["waiting"] = True
+    await connection.send(json.dumps(response))
+    return
 
 
 # Remove any references to the player
@@ -230,15 +227,34 @@ async def handler(connection):
 
                 # PLACE PIECE CASE
                 if action == "place_piece":
-                    result = game_manager.place_piece(params)
+                    # Check that the request contains all the required keys
+                    required_keys = ("x", "y", "player_key")
+                    if not all(key in params for key in required_keys):
+                        print("Couldn't load all the necessary parameters")
+                        continue
+
+                    result = game_manager.place_piece(
+                        params["x"], params["y"], params["player_key"])
 
                 # REMOVE PIECE CASE
                 elif action == "remove_piece":
-                    result = game_manager.remove_piece(params)
+                    # Check that the request contains all the required keys
+                    required_keys = ("piece_ID", "player_key")
+                    if not all(key in params for key in required_keys):
+                        print("Couldn't load all the necessary parameters")
+                        continue
+
+                    result = game_manager.remove_piece(params["piece_ID"], params["player_key"])
 
                 # MOVE PIECE CASE
                 elif action == "move_piece":
-                    result = game_manager.move_piece(params)
+                    # Check that the request contains all the required keys
+                    required_keys = ("new_x", "new_y", "piece_ID", "player_key")
+                    if not all(key in params for key in required_keys):
+                        print("Couldn't load all the necessary parameters")
+                        continue
+
+                    result = game_manager.move_piece(params["new_x"], params["new_y"], params["piece_ID"], params["player_key"])
 
                 # INVALID ACTION CASE
                 else:
