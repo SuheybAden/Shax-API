@@ -103,7 +103,7 @@ class BoardManager:
         return self.current_turn
 
     # Places a piece on the board
-    def place_piece(self, x, y, player_key):
+    def place_piece(self, x, y, player_num):
         error = ""
         new_ID = 0
         active_pieces = []
@@ -114,7 +114,7 @@ class BoardManager:
             return [new_ID, x, y, active_pieces, error]
 
         # Checks if it's the player's turn
-        if player_key != self.players[self.current_turn]:
+        if player_num != self.current_turn:
             error = "It's not the player's turn yet"
             return [new_ID, x, y, active_pieces, error]
 
@@ -158,7 +158,7 @@ class BoardManager:
         return [new_ID, x, y, active_pieces, error]
 
     # Removes a game piece from the board
-    def remove_piece(self, piece_ID, player_key):
+    def remove_piece(self, piece_ID, player_num):
         error = ""
         game_over = False
         active_pieces = []
@@ -169,7 +169,7 @@ class BoardManager:
             return[piece_ID, game_over, active_pieces, error]
 
         # Checks if it's not the player's turn yet
-        if player_key != self.players[self.current_turn]:
+        if player_num != self.current_turn:
             error = "It's not the player's turn yet"
             return[piece_ID, game_over, active_pieces, error]
 
@@ -215,7 +215,7 @@ class BoardManager:
         return[piece_ID, game_over, active_pieces, error]
 
     # Moves a game piece from one spot to another
-    def move_piece(self, x, y, piece_ID, player_key):
+    def move_piece(self, x, y, piece_ID, player_num):
         error = ""
         active_pieces = []
 
@@ -225,7 +225,7 @@ class BoardManager:
             return [x, y, piece_ID, active_pieces, error]
 
         # Checks if it's the player's turn
-        if player_key != self.players[self.current_turn]:
+        if player_num != self.current_turn:
             error = "It's not the player's turn yet"
             return [x, y, piece_ID, active_pieces, error]
 

@@ -16,7 +16,7 @@ waiting_list: dict = {}
 # BoardManager (key) -> List of Player Websockets (value)
 games: dict = {}
 
-# Player Websocket(key) -> List containing the BoardManager and opposing player (value)
+# Player Websocket(key) -> List containing the BoardManager, opposing player, and the player's token (value)
 players: dict = {}
 
 
@@ -102,8 +102,8 @@ async def join_game(connection, params):
 
         # Update all references
         games[game_manager] = (connection, opponent)
-        players[connection] = (game_manager, opponent)
-        players[opponent] = (game_manager, connection)
+        players[connection] = (game_manager, opponent, 0)
+        players[opponent] = (game_manager, connection, 1)
 
         return
 
@@ -118,7 +118,7 @@ async def join_game(connection, params):
 
 
 # Remove any references to the player
-async def close_connection(connection, params):
+async def close_connection(connection):
     # Generate the defualt API response
     result = {"success": True,
                 "action": "quit_game",
@@ -128,8 +128,8 @@ async def close_connection(connection, params):
 
     # If they were in a game, remove any remaining references to the player and their opponent
     if connection in players:
-        board_manager, opponent = players.pop(connection, None)
-        board_manager.end_game(params["player_key"])
+        board_manager, opponent, player_num = players.pop(connection, None)
+        board_manager.end_game()
 
         # Check if it was a local game
         is_local = connection == opponent
@@ -208,24 +208,20 @@ async def handler(connection):
 
             # QUIT GAME CASE
             elif action == "quit_game":
-                # Check that the request contains all the required keys
-                required_keys = ("player_key")
-                if not all(key in params for key in required_keys):
-                    print("Couldn't load all the necessary parameters")
-                    continue
-
-                response = await close_connection(connection, params)
-
-                print(response["msg"])
+                response = await close_connection(connection)
 
                 # Notify the player that they have successfully quit
                 response["action"] = action
                 await connection.send(json.dumps(response))
 
 
-            # SYMMETRICAL CASES
+            # GAME RELATED CASES
             else:
-                game_manager, opponent, token = players.get(connection, [None, None, None])
+                game_manager, opponent, player_num = players.get(connection, [None, None, None])
+
+                # For local games, always set the player_num to the current turn
+                if connection == opponent:
+                    player_num = game_manager.current_turn
 
                 # Check if the player is in a game
                 if game_manager is None:
@@ -237,16 +233,18 @@ async def handler(connection):
                     await connection.send(json.dumps(response))
                     continue
 
+
                 # PLACE PIECE CASE
                 if action == "place_piece":
+                    print("placing")
                     # Check that the request contains all the required keys
-                    required_keys = ("x", "y", "player_key")
+                    required_keys = ("x", "y")
                     if not all(key in params for key in required_keys):
                         print("Couldn't load all the necessary parameters")
                         continue
 
                     new_ID, x, y, active_pieces, error = game_manager.place_piece(
-                        params["x"], params["y"], params["player_key"])
+                        params["x"], params["y"], player_num)
 
                     result = {"success": error == "",
                               "action": "place_piece",
@@ -262,13 +260,16 @@ async def handler(connection):
                 # REMOVE PIECE CASE
                 elif action == "remove_piece":
                     # Check that the request contains all the required keys
-                    required_keys = ("piece_ID", "player_key")
+                    required_keys = ["piece_ID"]
+                    print("removing")
+                    print("piece_ID" in params)
+                    print(key in params for key in required_keys)
                     if not all(key in params for key in required_keys):
                         print("Couldn't load all the necessary parameters")
                         continue
 
                     piece_ID, game_over, active_pieces, error = game_manager.remove_piece(
-                        params["piece_ID"], params["player_key"])
+                        params["piece_ID"], player_num)
 
                     result = {"success": error == "",
                               "action": "remove_piece",
@@ -284,13 +285,13 @@ async def handler(connection):
                 elif action == "move_piece":
                     # Check that the request contains all the required keys
                     required_keys = ("new_x", "new_y",
-                                     "piece_ID", "player_key")
+                                     "piece_ID")
                     if not all(key in params for key in required_keys):
                         print("Couldn't load all the necessary parameters")
                         continue
 
                     x, y, piece_ID, active_pieces, error = game_manager.move_piece(
-                        params["new_x"], params["new_y"], params["piece_ID"], params["player_key"])
+                        params["new_x"], params["new_y"], params["piece_ID"], player_num)
 
                     result = {"success": error == "",
                               "action": "move_piece",
@@ -320,7 +321,7 @@ async def handler(connection):
                 # Notify both players if the last move ended the game
                 if "game_over" in result and result["game_over"]:
                     # Remove all references to the player websockets and the game manager
-                    result = await close_connection(connection, {"forfeit": False})
+                    result = await close_connection(connection)
 
                     await connection.send(json.dumps(result))
 
@@ -328,8 +329,7 @@ async def handler(connection):
         print("Connection closed: ", e)
 
         # Remove all references to the player websockets and the game manager
-        params = {"player_key": 0}
-        await close_connection(connection, params)
+        await close_connection(connection)
 
 
 async def main():
