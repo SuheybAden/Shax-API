@@ -31,7 +31,7 @@ class BoardManager:
         self.MARGIN_OF_ERROR = .2
 
         # How far the pieces' ID needs to bit shifted to the left to store the player ID with it
-        self.ID_SHIFT = 2
+        self.ID_SHIFT = 1
 
         # Adjacency list for keeping track of all the nodes the pieces can be placed in
         # TODO: find a better word than "nodes" and maybe rename this variable
@@ -106,22 +106,23 @@ class BoardManager:
     def place_piece(self, x, y, player_key):
         error = ""
         new_ID = 0
+        active_pieces = []
 
         # Checks if the game is in the placement stage yet
         if self.game_state != GameState.PLACEMENT:
             error = "The game is not in the placement stage"
-            return [new_ID, x, y, error]
+            return [new_ID, x, y, active_pieces, error]
 
         # Checks if it's the player's turn
         if player_key != self.players[self.current_turn]:
             error = "It's not the player's turn yet"
-            return [new_ID, x, y, error]
+            return [new_ID, x, y, active_pieces, error]
 
         # Check if the piece is being played in a valid spot
         valid_spot = self._is_valid_spot(x, y)
         if valid_spot is None:
             error = "Can't place piece at an invalid node"
-            return [new_ID, x, y, error]
+            return [new_ID, x, y, active_pieces, error]
 
         # Generate an ID for the new game piece
         new_ID = int((self.total_pieces[self.current_turn]
@@ -152,7 +153,9 @@ class BoardManager:
             else:
                 self.current_turn = 1
 
-        return [new_ID, x, y, error]
+            active_pieces = self._get_removable_pieces()
+
+        return [new_ID, x, y, active_pieces, error]
 
     # Removes a game piece from the board
     def remove_piece(self, piece_ID, player_key):
@@ -268,10 +271,6 @@ class BoardManager:
 
     def end_game(self):
         self.game_state = GameState.STOPPED
-        return {"success": True,
-                "action": "game_over",
-                "won": True,
-                "msg": "You Won!"}
 
     # ***************************** HELPER FUNCTIONS ***************************************
     def _is_valid_spot(self, x, y):
@@ -333,6 +332,25 @@ class BoardManager:
             id = self.board_state[y][x]
             if self._get_possible_moves(id):
                 active_pieces.append(id)
+
+        return active_pieces
+
+    def _get_removable_pieces(self):
+        active_pieces = []
+
+        # Get the indices of the player's pieces
+        # TODO: check if there is a better way to do this
+        board_copy = np.copy(self.board_state)
+        non_null = np.logical_and(board_copy != None, board_copy != -1)
+        board_copy[non_null] = board_copy[non_null] & (2**self.ID_SHIFT - 1)
+        indices = np.where(board_copy == (self.current_turn + 1) % 2)
+
+        # Goes through each of the player's pieces
+        for i in range(len(indices[0])):
+            x = indices[1][i]
+            y = indices[0][i]
+            id = self.board_state[y][x]
+            active_pieces.append(id)
 
         return active_pieces
 
