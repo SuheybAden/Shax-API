@@ -207,6 +207,8 @@ class BoardManager:
                     (self.current_turn == self.first_to_jare):
                 self.game_state = GameState.MOVEMENT
                 active_pieces = self._get_active_pieces()
+            else:
+                active_pieces = self._get_removable_pieces()
 
         else:
             self.game_state = GameState.MOVEMENT
@@ -253,6 +255,7 @@ class BoardManager:
 
         # Lets the current player go to the removal state if they made a new jare
         if new_jare:
+            active_pieces = self._get_removable_pieces()
             self.game_state = GameState.REMOVAL
 
         # Go on to the next player if no jare was made
