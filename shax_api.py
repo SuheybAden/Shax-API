@@ -111,7 +111,6 @@ async def join_game(connection, params):
     game_types[game_type] = connection
     waiting_list[connection] = game_type
 
-    print("waiting")
     response["waiting"] = True
     await connection.send(json.dumps(response))
     return
@@ -208,6 +207,7 @@ async def handler(connection):
 
             # QUIT GAME CASE
             elif action == "quit_game":
+                print("A player is trying to quit a game")
                 response = await close_connection(connection)
 
                 # Notify the player that they have successfully quit
@@ -236,7 +236,6 @@ async def handler(connection):
 
                 # PLACE PIECE CASE
                 if action == "place_piece":
-                    print("placing")
                     # Check that the request contains all the required keys
                     required_keys = ("x", "y")
                     if not all(key in params for key in required_keys):
@@ -261,9 +260,6 @@ async def handler(connection):
                 elif action == "remove_piece":
                     # Check that the request contains all the required keys
                     required_keys = ["piece_ID"]
-                    print("removing")
-                    print("piece_ID" in params)
-                    print(key in params for key in required_keys)
                     if not all(key in params for key in required_keys):
                         print("Couldn't load all the necessary parameters")
                         continue
