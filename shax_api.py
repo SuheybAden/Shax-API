@@ -1,4 +1,5 @@
 import asyncio
+from enum import Enum
 import websockets
 from websockets.server import WebSocketServerProtocol
 import json
@@ -19,6 +20,13 @@ games: dict = {}
 # Player Websocket(key) -> List containing the BoardManager, opposing player, and the player's token (value)
 players: dict = {}
 
+
+class EndFlags(Enum):
+    GAME_NOT_STARTED = 0,
+    QUIT_QUEUE = 1,
+    PLAYER_WON = 2,
+    PLAYER_QUIT = 3,
+    PLAYER_DISCONNECTED = 4
 
 # Takes in a new connection looking for a game.
 # If the waiting list has another connection waiting for the same type of game,
@@ -59,7 +67,7 @@ async def join_game(connection, params):
         p2_id = 2  # secrets.randbelow(n)
 
         # Start a new game
-        game_manager: BoardManager = BoardManager(min_pieces=2, max_pieces=7)
+        game_manager: BoardManager = BoardManager(min_pieces=2, max_pieces=12)
         response["next_player"] = game_manager.start_game(
             p1_id=p1_id, p2_id=p2_id)
         response["next_state"] = game_manager.game_state.name
@@ -117,12 +125,12 @@ async def join_game(connection, params):
 
 
 # Remove any references to the player
-async def close_connection(connection):
+async def close_connection(connection, flag: EndFlags):
     # Generate the defualt API response
     result = {"success": True,
                 "action": "quit_game",
                 "error": "",
-                "forfeit": False,
+                "flag": flag.value,
                 "winner": 0}
 
     # If they were in a game, remove any remaining references to the player and their opponent
@@ -148,10 +156,13 @@ async def close_connection(connection):
         game_type = waiting_list.pop(connection)
         game_types.pop(game_type)
 
+        result["flag"] = EndFlags.QUIT_QUEUE.value
+
     else:
         # Generate the message for telling the player that they left the waiting list
         result["success"] = False
         result["error"] = "You are neither in a waiting list or game"
+        result["flag"] = EndFlags.GAME_NOT_STARTED.value
 
     return result
 
@@ -208,10 +219,9 @@ async def handler(connection):
             # QUIT GAME CASE
             elif action == "quit_game":
                 print("A player is trying to quit a game")
-                response = await close_connection(connection)
+                response = await close_connection(connection, EndFlags.PLAYER_QUIT)
 
                 # Notify the player that they have successfully quit
-                response["action"] = action
                 await connection.send(json.dumps(response))
 
 
@@ -317,7 +327,7 @@ async def handler(connection):
                 # Notify both players if the last move ended the game
                 if "game_over" in result and result["game_over"]:
                     # Remove all references to the player websockets and the game manager
-                    result = await close_connection(connection)
+                    result = await close_connection(connection, EndFlags.PLAYER_WON)
 
                     await connection.send(json.dumps(result))
 
@@ -325,7 +335,7 @@ async def handler(connection):
         print("Connection closed: ", e)
 
         # Remove all references to the player websockets and the game manager
-        await close_connection(connection)
+        await close_connection(connection, EndFlags.PLAYER_DISCONNECTED)
 
 
 async def main():
