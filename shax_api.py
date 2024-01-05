@@ -8,6 +8,11 @@ import secrets
 from board_manager import BoardManager, GameState
 
 
+# Bit masks
+LOCAL_GAME_MASK = 0b1
+CPU_GAME_MASK = 0b10
+PRIV_GAME_MASK = 0b100
+
 # Game type (key) -> Player websocket(value)
 game_types: dict = {}
 
@@ -39,6 +44,7 @@ async def join_game(connection, params):
         "action": "join_game",
         "error": "",
         "waiting": False,
+        "lobby_key": 0,
         "player1_key": 0,
         "player2_key": 0,
         "player_num": 0,
@@ -57,9 +63,13 @@ async def join_game(connection, params):
         return
 
     # Check if the connection is requesting for a local game
-    is_local = (bool)((game_type & (1 << 0x0)) >> 0x0)
+    is_local = (bool)(game_type & LOCAL_GAME_MASK)
+    # Check if the connection is requesting for a game against a CPU
+    requesting_CPU = (bool)(game_type & CPU_GAME_MASK)
+    # Check if the connection is requesting for a private game lobby
+    private_lobby = (bool)(game_type & PRIV_GAME_MASK)
 
-    # Check if there is either another player waiting for the same type of game or if this is a local game
+    # Check if a new game can be started
     if game_type in game_types or is_local:
         # Generate random IDs for each player
         n = 1000
@@ -113,25 +123,34 @@ async def join_game(connection, params):
         players[connection] = (game_manager, opponent, 0)
         players[opponent] = (game_manager, connection, 1)
 
-        return
+    # Checks if the game type is formatted as a private lobby key
+    elif game_type & ~0xFFFF != 0:
+        response["success"] = False
+        response["error"] = "Your private lobby key is invalid"
 
-    # Otherwise, add the new player to the waiting list
-    game_types[game_type] = connection
-    waiting_list[connection] = game_type
+    else:
+        # TODO: check if the "game_type" variable can be a 64-bit int
+        if requesting_CPU or private_lobby:
+            lobby_key = secrets.randbelow(2**16)
+            game_type = (lobby_key << 16) | (game_type & 0xFFFF)
+            response["lobby_key"] = game_type
 
-    response["waiting"] = True
-    await connection.send(json.dumps(response))
-    return
+        # Add the new player to the waiting list
+        game_types[game_type] = connection
+        waiting_list[connection] = game_type
+
+        response["waiting"] = True
+        await connection.send(json.dumps(response))
 
 
 # Remove any references to the player
 async def close_connection(connection, flag: EndFlags):
     # Generate the defualt API response
     result = {"success": True,
-                "action": "quit_game",
-                "error": "",
-                "flag": flag.value,
-                "winner": 0}
+              "action": "quit_game",
+              "error": "",
+              "flag": flag.value,
+              "winner": 0}
 
     # If they were in a game, remove any remaining references to the player and their opponent
     if connection in players:
@@ -172,6 +191,9 @@ async def handler(connection):
 
     try:
         async for message in connection:
+            # Padding for debug prints
+            print("")
+
             params = json.loads(message)
 
             # FOR TESTING PURPOSES
@@ -189,7 +211,6 @@ async def handler(connection):
                 }
                 await connection.send(json.dumps(response))
                 continue
-
 
             # START GAME CASE
             if action == "join_game":
@@ -215,7 +236,6 @@ async def handler(connection):
                 else:
                     await join_game(connection, params)
 
-
             # QUIT GAME CASE
             elif action == "quit_game":
                 print("A player is trying to quit a game")
@@ -223,7 +243,6 @@ async def handler(connection):
 
                 # Notify the player that they have successfully quit
                 await connection.send(json.dumps(response))
-
 
             # GAME RELATED CASES
             else:
@@ -242,7 +261,6 @@ async def handler(connection):
                     }
                     await connection.send(json.dumps(response))
                     continue
-
 
                 # PLACE PIECE CASE
                 if action == "place_piece":
