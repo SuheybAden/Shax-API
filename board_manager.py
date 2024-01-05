@@ -269,6 +269,7 @@ class BoardManager:
                 print("Player " + str(self.current_turn + 1) + " can't move any pieces. " +
                       "Going back to the previous player.")
                 self.current_turn = (self.current_turn - 1) % self.TOTAL_PLAYERS
+                active_pieces = self._get_active_pieces()
 
         return [valid_spot[0], valid_spot[1], piece_ID, active_pieces, error]
 
