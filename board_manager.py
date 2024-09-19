@@ -15,18 +15,20 @@ class GameState(Enum):
 
 class BoardManager:
     # Constructor function
-    # Sets all the constant variables for the game
+    # Sets all the constant parameters for the game
     def __init__(self, min_pieces, max_pieces) -> None:
         # Minimum number of pieces a player can have or its game over
-        self.MIN_PIECES: int = min_pieces
+        # Has a lower limit of 3 (Minimum needed to make a jare)
+        self.MIN_PIECES: int = max(3, min_pieces)
 
         # Maximum number of pieces each player can have
-        self.MAX_PIECES: int = max_pieces
+        # Has an upper limit of 12
+        self.MAX_PIECES: int = min(12, max_pieces)
 
         # Total number of players
         self.TOTAL_PLAYERS = 2
 
-        # How far of a piece can be from the center of its new location
+        # How far off a piece can be from the center of its new location
         # Goes from 0 to 1
         self.MARGIN_OF_ERROR = .2
 
@@ -66,11 +68,7 @@ class BoardManager:
 
     # Starts a game between two players
     # Initializes all the variables that keep track of the state of the game
-    def start_game(self, p1_id, p2_id):
-        # Save the player IDs
-        self.players: list = []
-        self.players.append(p1_id)
-        self.players.append(p2_id)
+    def start_game(self):
 
         # Set which player goes first
         self.current_turn = 0

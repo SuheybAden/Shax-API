@@ -89,15 +89,9 @@ async def join_game(connection, params):
     # 1) The current connection is requesting a game type that a previous connection already asked for
     # 2) The current connection is requesting a local game (aka both players originate from the same connection)
     elif game_type in game_types or is_local:
-        # Generate random IDs for each player
-        n = 1000
-        p1_id = 1  # secrets.randbelow(n)
-        p2_id = 2  # secrets.randbelow(n)
-
         # Initializes a new instance of the board manager
         game_manager: BoardManager = BoardManager(min_pieces=2, max_pieces=12)
-        response["next_player"] = game_manager.start_game(
-            p1_id=p1_id, p2_id=p2_id)
+        response["next_player"] = game_manager.start_game()
 
         # Loads the adjacent pieces array into a JSON-compatible format
         # so that the client knows how the board is arranged
@@ -115,30 +109,21 @@ async def join_game(connection, params):
         response["adjacent_pieces"] = adjacent_pieces_json
         response["success"] = True
 
-        # Gives the connection both keys if both player are from the same source
+        # Reuses the same connection for the opponent if this is a local game
         if is_local:
             opponent = connection
 
-            response["player1_key"] = p1_id
-            response["player2_key"] = p2_id
-            await connection.send(json.dumps(response))
-
-        # Otherwise, gives each connection their respective key
+        # Otherwise, find the other player and remove them from the waiting list
         else:
-            # Finds the other player and removes them from the waiting list
             opponent = game_types.pop(game_type)
             waiting_list.pop(opponent)
 
-            # Notify each player that a game was started
-            # Give each of them their respective player keys
-            response["player1_key"] = p1_id
-            response["player2_key"] = 0
-            await connection.send(json.dumps(response))
-
-            response["player1_key"] = 0
-            response["player2_key"] = p2_id
+            # Notify the second player (opponent) that the game has started
             response["player_num"] = 1
             await opponent.send(json.dumps(response))
+
+        # Notify the first player that a game has started
+        await connection.send(json.dumps(response))
 
         # Update all references to the relevant connections and game manager
         games[game_manager] = (connection, opponent)
