@@ -1,5 +1,6 @@
 import asyncio
 from enum import Enum
+import random
 import websockets
 from websockets.server import WebSocketServerProtocol
 import json
@@ -9,9 +10,12 @@ from board_manager import BoardManager, GameState
 
 
 # Bit masks
+# The game_type parameter in the "join_game" JSON request is formatted as follows:
+#       | 32 bits for private lobby key | 
 LOCAL_GAME_MASK = 0b1
 CPU_GAME_MASK = 0b10
 PRIV_GAME_MASK = 0b100
+LOBBY_KEY_MASK = ~0xFFFF
 
 # Game type (key) -> Player websocket(value)
 game_types: dict = {}
@@ -40,7 +44,7 @@ class EndFlags(Enum):
 async def join_game(connection, params):
     # Generate a default API response
     response = {
-        "success": True,
+        "success": False,
         "action": "join_game",
         "error": "",
         "waiting": False,
@@ -57,32 +61,36 @@ async def join_game(connection, params):
     try:
         game_type: int = params["game_type"]
     except Exception:
-        response["success"] = False
         response["error"] = "Wasn't given all the necessary parameters for joining a game"
         await connection.send(json.dumps(response))
         return
 
-    # Check if the connection is requesting for a local game
-    is_local = (bool)(game_type & LOCAL_GAME_MASK)
+    # Check if the connection is requesting to join a private lobby
+    joining_lobby = (bool)(game_type & LOBBY_KEY_MASK)
+    # Check if the connection is requesting to create a private game lobby
+    create_lobby = (bool)(game_type & PRIV_GAME_MASK)
     # Check if the connection is requesting for a game against a CPU
     requesting_CPU = (bool)(game_type & CPU_GAME_MASK)
-    # Check if the connection is requesting for a private game lobby
-    private_lobby = (bool)(game_type & PRIV_GAME_MASK)
+    # Check if the connection is requesting for a local game
+    is_local = (bool)(game_type & LOCAL_GAME_MASK)
 
-    # Check if a new game can be started
+    # Tries to start a new game using the current connection
+    # A new game can be started under 2 conditions:
+    # 1) The current connection is requesting a game type that a previous connection already asked for
+    # 2) The current connection is requesting a local game (aka both players originate from the same connection)
     if game_type in game_types or is_local:
         # Generate random IDs for each player
         n = 1000
         p1_id = 1  # secrets.randbelow(n)
         p2_id = 2  # secrets.randbelow(n)
 
-        # Start a new game
+        # Initializes a new instance of the board manager
         game_manager: BoardManager = BoardManager(min_pieces=2, max_pieces=12)
         response["next_player"] = game_manager.start_game(
             p1_id=p1_id, p2_id=p2_id)
-        response["next_state"] = game_manager.game_state.name
 
         # Loads the adjacent pieces array into a JSON-compatible format
+        # so that the client knows how the board is arranged
         adjacent_pieces_json = []
         for node, neighbors in game_manager.adjacent_pieces.items():
             neighbors_array = []
@@ -91,7 +99,11 @@ async def join_game(connection, params):
                 neighbors_array.append({"x": neighbor[0], "y": neighbor[1]})
 
             adjacent_pieces_json.append({"x": node[0], "y": node[1], "neighbors": neighbors_array})
+
+        # Update the JSON response for the current connection
+        response["next_state"] = game_manager.game_state.name
         response["adjacent_pieces"] = adjacent_pieces_json
+        response["success"] = True
 
         # Gives the connection both keys if both player are from the same source
         if is_local:
@@ -118,32 +130,36 @@ async def join_game(connection, params):
             response["player_num"] = 1
             await opponent.send(json.dumps(response))
 
-        # Update all references
+        # Update all references to the relevant connections and game manager
         games[game_manager] = (connection, opponent)
         players[connection] = (game_manager, opponent, 0)
         players[opponent] = (game_manager, connection, 1)
 
-    # Checks if the game type is formatted as a private lobby key
-    elif game_type & ~0xFFFF != 0:
-        response["success"] = False
+    # Checks if the current connection is trying to join an unknown private lobby
+    elif joining_lobby:
         response["error"] = "Your private lobby key is invalid"
+        await connection.send(json.dumps(response))
 
+    # If there are no available opponents, add the current connection to the waiting list
     else:
         # TODO: check if the "game_type" variable can be a 64-bit int
-        if requesting_CPU or private_lobby:
-            lobby_key = secrets.randbelow(2**16)
+        # If the connection wants a private lobby or to go against a CPU opponent,
+        # add a random "lobby key" to the front of the game type
+        if requesting_CPU or create_lobby:
+            lobby_key = random.randint(2**16, 2**32)
             game_type = (lobby_key << 16) | (game_type & 0xFFFF)
             response["lobby_key"] = game_type
 
-        # Add the new player to the waiting list
+        # Add the new connection to the waiting list
         game_types[game_type] = connection
         waiting_list[connection] = game_type
 
+        response["success"] = True
         response["waiting"] = True
         await connection.send(json.dumps(response))
 
 
-# Remove any references to the player
+# Remove any references to the connection
 async def close_connection(connection, flag: EndFlags):
     # Generate the defualt API response
     result = {"success": True,
