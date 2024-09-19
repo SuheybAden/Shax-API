@@ -25,6 +25,9 @@ class BoardManager:
         # Has an upper limit of 12
         self.MAX_PIECES: int = min(12, max_pieces)
 
+        # The length/width of the board's grid
+        self.BOARD_SIZE = 7
+
         # Total number of players
         self.TOTAL_PLAYERS = 2
 
@@ -69,12 +72,10 @@ class BoardManager:
     # Starts a game between two players
     # Initializes all the variables that keep track of the state of the game
     def start_game(self):
-
         # Set which player goes first
         self.current_turn = 0
 
         # Load the starting state of the board
-        self.board_size = 7
         self.board_state = np.array([[-1,     None,    None,    -1,      None,    None,    -1],
                                      [None,   -1,      None,    -1,      None,    -1,      None],
                                      [None,   None,    -1,      -1,      -1,      None,    None],
@@ -106,6 +107,7 @@ class BoardManager:
         new_ID = 0
         active_pieces = []
 
+        # *** 1) CHECK IF THE MOVE IS LEGAL
         # Checks if the game is in the placement stage yet
         if self.game_state != GameState.PLACEMENT:
             error = "The game is not in the placement stage"
@@ -116,12 +118,13 @@ class BoardManager:
             error = "It's not the player's turn yet"
             return [new_ID, x, y, active_pieces, error]
 
-        # Check if the piece is being played in a valid spot
-        valid_spot = self._is_valid_spot(x, y)
+        # Check if the piece is being placed in a valid spot
+        valid_spot = self._is_empty_spot(x, y)
         if valid_spot is None:
             error = "Can't place piece at an invalid node"
             return [new_ID, x, y, active_pieces, error]
 
+        # *** 2) UPDATE THE BOARD VARIABLES BASED ON THE PLAYER"S MOVE
         # Generate an ID for the new game piece
         new_ID = int((self.total_pieces[self.current_turn]
                           << self.ID_SHIFT) | self.current_turn)
@@ -132,13 +135,12 @@ class BoardManager:
         # Update the player's total number of pieces
         self.total_pieces[self.current_turn] += 1
 
+        # *** 3) VERIFY IF ANY SPECIAL CONDITIONS HAVE BEEN MET
         # Check if the first jare has been made yet
         if self._made_new_jare() and self.first_to_jare is None:
             self.first_to_jare = self.current_turn
 
-        # Go to the next player's turn
-        self.current_turn = (self.current_turn + 1) % self.TOTAL_PLAYERS
-
+        # *** 4) PREPARE THE BOARD FOR THE NEXT TURN
         # If all the pieces have been placed,
         # go on to the first removal state of the game
         if np.all(self.total_pieces >= self.MAX_PIECES):
@@ -153,6 +155,11 @@ class BoardManager:
 
             active_pieces = self._get_removable_pieces()
 
+        # Otherwise, go to the next player's turn
+        else:
+            self.current_turn = (self.current_turn + 1) % self.TOTAL_PLAYERS
+
+        # *** 5) NOTIFY THE PLAYER OF THE MOVE'S OUTCOME
         return [new_ID, x, y, active_pieces, error]
 
     # Removes a game piece from the board
@@ -160,6 +167,7 @@ class BoardManager:
         error = ""
         active_pieces = []
 
+        # *** 1) CHECK IF THE MOVE IS LEGAL
         # Checks if the game is in one of the removal stages yet
         if self.game_state != GameState.REMOVAL and self.game_state != GameState.FIRST_REMOVAL:
             error = "The game is not in the removal stage"
@@ -182,17 +190,20 @@ class BoardManager:
             error = "This piece belongs to the current player"
             return [piece_ID, active_pieces, error]
 
+        # *** 2) UPDATE THE BOARD VARIABLES BASED ON THE PLAYER"S MOVE
         # Remove the piece from the board
         self.board_state[self.board_state == piece_ID] = -1
 
         # Update the remaining pieces of the other player
         self.total_pieces[piece_owner] -= 1
 
+        # *** 3) VERIFY IF ANY SPECIAL CONDITIONS HAVE BEEN MET
         # End the game if one of the players won
         if (self._is_game_over()):
             self.game_state = GameState.STOPPED
             return [piece_ID, active_pieces, error]
 
+        # *** 4) PREPARE THE BOARD FOR THE NEXT TURN
         # If this is the very first removal stage,
         # every player must have a chance to remove a piece before going on to the movement stage
         # TODO: combine these conditions better
@@ -210,13 +221,15 @@ class BoardManager:
             self.game_state = GameState.MOVEMENT
             active_pieces = self._get_active_pieces()
 
-        return[piece_ID, active_pieces, error]
+        # *** 5) NOTIFY THE PLAYER OF THE MOVE'S OUTCOME
+        return [piece_ID, active_pieces, error]
 
     # Moves a game piece from one spot to another
     def move_piece(self, x, y, piece_ID, player_num):
         error = ""
         active_pieces = []
 
+        # *** 1) CHECK IF THE MOVE IS LEGAL
         # Checks if the game is in the movement stage
         if self.game_state != GameState.MOVEMENT:
             error = "The game is not in the movement stage"
@@ -228,7 +241,7 @@ class BoardManager:
             return [x, y, piece_ID, active_pieces, error]
 
         # Checks if the new coordinates are a valid spot on the board
-        valid_spot = self._is_valid_spot(x, y)
+        valid_spot = self._is_empty_spot(x, y)
         if valid_spot is None:
             error = "Can't move the piece to an invalid spot"
             return [x, y, piece_ID, active_pieces, error]
@@ -243,12 +256,15 @@ class BoardManager:
             error = "Can't move the piece to a nonadjacent spot"
             return [x, y, piece_ID, active_pieces, error]
 
+        # *** 2) UPDATE THE BOARD VARIABLES BASED ON THE PLAYER"S MOVE
         # Update the board's state
         self.board_state[old_y][old_x] = -1
         self.board_state[valid_spot[1]][valid_spot[0]] = piece_ID
 
+        # *** 3) VERIFY IF ANY SPECIAL CONDITIONS HAVE BEEN MET
         new_jare = self._made_new_jare()
 
+        # *** 4) PREPARE THE BOARD FOR THE NEXT TURN
         # Lets the current player go to the removal state if they made a new jare
         if new_jare:
             active_pieces = self._get_removable_pieces()
@@ -261,19 +277,23 @@ class BoardManager:
             # Checks if the next player has any pieces that can be moved
             active_pieces = self._get_active_pieces()
 
+            # If the current player can't move any of their pieces,
+            # the previous player gets another turn
             if not active_pieces:
                 print("Player " + str(self.current_turn + 1) + " can't move any pieces. " +
                       "Going back to the previous player.")
                 self.current_turn = (self.current_turn - 1) % self.TOTAL_PLAYERS
                 active_pieces = self._get_active_pieces()
 
+        # *** 5) NOTIFY THE PLAYER OF THE MOVE'S OUTCOME
         return [valid_spot[0], valid_spot[1], piece_ID, active_pieces, error]
 
+    # Sets the game state to STOPPED
     def end_game(self):
         self.game_state = GameState.STOPPED
 
     # ***************************** HELPER FUNCTIONS ***************************************
-    def _is_valid_spot(self, x, y):
+    def _is_empty_spot(self, x, y):
         target_x = round(x)
         target_y = round(y)
 
@@ -285,8 +305,8 @@ class BoardManager:
                 y_error > self.MARGIN_OF_ERROR):
             # print("Too far from corner/intersection")
             return None
-        elif (target_x < 0 or target_x >= self.board_size or
-                target_y < 0 or target_y >= self.board_size):
+        elif (target_x < 0 or target_x >= self.BOARD_SIZE or
+                target_y < 0 or target_y >= self.BOARD_SIZE):
             # print("Outside of the game board")
             return None
         elif (self.board_state[target_y][target_x] != -1):
@@ -309,8 +329,9 @@ class BoardManager:
 
         x, y = self._piece_ID_to_coord(piece_ID)
 
+        # Gets all the adjacent spots that are empty
         for adjacent_spot in self.adjacent_pieces[(x, y)]:
-            if self._is_valid_spot(adjacent_spot[0], adjacent_spot[1]):
+            if self._is_empty_spot(adjacent_spot[0], adjacent_spot[1]):
                 possible_moves.append(adjacent_spot)
 
         return possible_moves
