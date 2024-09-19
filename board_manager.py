@@ -160,30 +160,29 @@ class BoardManager:
     # Removes a game piece from the board
     def remove_piece(self, piece_ID, player_num):
         error = ""
-        game_over = False
         active_pieces = []
 
         # Checks if the game is in one of the removal stages yet
         if self.game_state != GameState.REMOVAL and self.game_state != GameState.FIRST_REMOVAL:
             error = "The game is not in the removal stage"
-            return[piece_ID, game_over, active_pieces, error]
+            return [piece_ID, active_pieces, error]
 
         # Checks if it's not the player's turn yet
         if player_num != self.current_turn:
             error = "It's not the player's turn yet"
-            return[piece_ID, game_over, active_pieces, error]
+            return [piece_ID, active_pieces, error]
 
         # Checks if the piece exists
         if piece_ID not in self.board_state:
             error = "The piece to be removed doesn't exist"
-            return[piece_ID, game_over, active_pieces, error]
+            return [piece_ID, active_pieces, error]
 
         # Checks if the piece belongs to the current player
         piece_owner = piece_ID & (2**self.ID_SHIFT - 1)
 
         if piece_owner == self.current_turn:
             error = "This piece belongs to the current player"
-            return[piece_ID, game_over, active_pieces, error]
+            return [piece_ID, active_pieces, error]
 
         # Remove the piece from the board
         self.board_state[self.board_state == piece_ID] = -1
@@ -194,8 +193,7 @@ class BoardManager:
         # End the game if one of the players won
         if (self._is_game_over()):
             self.game_state = GameState.STOPPED
-            game_over = True
-            return[piece_ID, game_over, active_pieces, error]
+            return [piece_ID, active_pieces, error]
 
         # If this is the very first removal stage,
         # every player must have a chance to remove a piece before going on to the movement stage
@@ -214,7 +212,7 @@ class BoardManager:
             self.game_state = GameState.MOVEMENT
             active_pieces = self._get_active_pieces()
 
-        return[piece_ID, game_over, active_pieces, error]
+        return[piece_ID, active_pieces, error]
 
     # Moves a game piece from one spot to another
     def move_piece(self, x, y, piece_ID, player_num):

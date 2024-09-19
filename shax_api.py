@@ -307,7 +307,7 @@ async def handler(connection):
                         continue
 
                     # Pass the player's action to the game manager
-                    piece_ID, game_over, active_pieces, error = game_manager.remove_piece(
+                    piece_ID, active_pieces, error = game_manager.remove_piece(
                         params["piece_ID"], player_num)
 
                     # Generate a JSON response about the move's outcome
@@ -360,7 +360,7 @@ async def handler(connection):
                     await opponent.send(json.dumps(result))
 
                 # Notify both players if the last move ended the game
-                if "game_over" in result and result["game_over"]:
+                if result["next_state"] == GameState.STOPPED:
                     # Remove all references to the player websockets and the game manager
                     result = await close_connection(connection, EndFlags.PLAYER_WON)
 
