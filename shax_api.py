@@ -74,11 +74,21 @@ async def join_game(connection, params):
     # Check if the connection is requesting for a local game
     is_local = (bool)(game_type & LOCAL_GAME_MASK)
 
+    # Checks if the player is already in a game
+    if connection in players:
+        response["error"] = "The player is already in a game"
+        await connection.send(json.dumps(response))
+
+    # Checks if the player is already waiting for a game
+    elif connection in waiting_list:
+        response["error"] = "The player is already in the waiting list"
+        await connection.send(json.dumps(response))
+
     # Tries to start a new game using the current connection
     # A new game can be started under 2 conditions:
     # 1) The current connection is requesting a game type that a previous connection already asked for
     # 2) The current connection is requesting a local game (aka both players originate from the same connection)
-    if game_type in game_types or is_local:
+    elif game_type in game_types or is_local:
         # Generate random IDs for each player
         n = 1000
         p1_id = 1  # secrets.randbelow(n)
@@ -186,7 +196,7 @@ async def close_connection(connection, flag: EndFlags):
             # Generate message for telling the player that they forfeited
             result["msg"] = "You Forfeited."
 
-    # Remove any references to the disconnected player in the waiting list
+    # Remove any references to the closed connection in the waiting list
     elif connection in waiting_list:
         game_type = waiting_list.pop(connection)
         game_types.pop(game_type)
@@ -223,7 +233,7 @@ async def handler(connection):
             except Exception:
                 response = {
                     "success": False,
-                    "error": "\"action\" property could not be found in the JSON request"
+                    "error": "The \"action\" property could not be found in your JSON request"
                 }
                 await connection.send(json.dumps(response))
                 continue
@@ -232,41 +242,20 @@ async def handler(connection):
             if action == "join_game":
                 print("A player is trying to join a game")
 
-                # Create the response template
-                response = {
-                    "success": False,
-                    "action": "join_game"
-                }
-
-                # Checks if the player is already in a game
-                if connection in players:
-                    response["error"] = "The player is already in a game"
-                    await connection.send(json.dumps(response))
-
-                # Checks if the player is already waiting for a game
-                elif connection in waiting_list:
-                    response["error"] = "The player is already in the waiting list"
-                    await connection.send(json.dumps(response))
-
                 # Tries connecting a new player to a game
-                else:
-                    await join_game(connection, params)
+                await join_game(connection, params)
 
             # QUIT GAME CASE
             elif action == "quit_game":
                 print("A player is trying to quit a game")
                 response = await close_connection(connection, EndFlags.PLAYER_QUIT)
 
-                # Notify the player that they have successfully quit
+                # Notify the player of the outcome
                 await connection.send(json.dumps(response))
 
             # GAME RELATED CASES
             else:
                 game_manager, opponent, player_num = players.get(connection, [None, None, None])
-
-                # For local games, always set the player_num to the current turn
-                if connection == opponent:
-                    player_num = game_manager.current_turn
 
                 # Check if the player is in a game
                 if game_manager is None:
@@ -278,6 +267,13 @@ async def handler(connection):
                     await connection.send(json.dumps(response))
                     continue
 
+                # For local games, always set the player_num key to the current turn
+                # This is b/c there is no way of accurately differentiating the two players
+                # since they come from the same connection. So we have to assume that the one
+                # requesting the move is the player whose turn it currently is.
+                if connection == opponent:
+                    player_num = game_manager.current_turn
+
                 # PLACE PIECE CASE
                 if action == "place_piece":
                     # Check that the request contains all the required keys
@@ -286,9 +282,11 @@ async def handler(connection):
                         print("Couldn't load all the necessary parameters")
                         continue
 
+                    # Pass the player's action to the game manager
                     new_ID, x, y, active_pieces, error = game_manager.place_piece(
                         params["x"], params["y"], player_num)
 
+                    # Generate a JSON response about the move's outcome
                     result = {"success": error == "",
                               "action": "place_piece",
                               "error": error,
@@ -308,16 +306,17 @@ async def handler(connection):
                         print("Couldn't load all the necessary parameters")
                         continue
 
+                    # Pass the player's action to the game manager
                     piece_ID, game_over, active_pieces, error = game_manager.remove_piece(
                         params["piece_ID"], player_num)
 
+                    # Generate a JSON response about the move's outcome
                     result = {"success": error == "",
                               "action": "remove_piece",
                               "error": error,
                               "next_player": game_manager.current_turn,
                               "next_state": game_manager.game_state.name,
                               "board_state": game_manager.board_state.tolist(),
-                              "game_over": game_over,
                               "removed_piece": piece_ID,
                               "active_pieces": active_pieces}
 
@@ -330,9 +329,11 @@ async def handler(connection):
                         print("Couldn't load all the necessary parameters")
                         continue
 
+                    # Pass the player's action to the game manager
                     x, y, piece_ID, active_pieces, error = game_manager.move_piece(
                         params["new_x"], params["new_y"], params["piece_ID"], player_num)
 
+                    # Generate a JSON response about the move's outcome
                     result = {"success": error == "",
                               "action": "move_piece",
                               "board_state": game_manager.board_state.tolist(),
@@ -351,10 +352,10 @@ async def handler(connection):
                         "error": "Invalid action"
                     }
 
-                # Notify the player of the game's results
+                # Notify the player of the move's outcome
                 await connection.send(json.dumps(result))
 
-                # Notify the opponent if the move was successful and the game is remote
+                # Notify the opponent if the move was successful and the opponent is on a different connection
                 if result["success"] and connection != opponent:
                     await opponent.send(json.dumps(result))
 
