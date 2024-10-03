@@ -4,10 +4,13 @@ import random
 import websockets
 from websockets.server import WebSocketServerProtocol
 import json
-import secrets
+import subprocess
 
 from board_manager import BoardManager, GameState
 
+# Server parameters
+server_address = "0.0.0.0"
+server_port = 8765
 
 # Bit masks
 # The game_type parameter in the "join_game" JSON request is formatted as follows:
@@ -36,6 +39,7 @@ class EndFlags(Enum):
     PLAYER_WON = 2,
     PLAYER_QUIT = 3,
     PLAYER_DISCONNECTED = 4
+
 
 # Takes in a new connection looking for a game.
 # If the waiting list has another connection waiting for the same type of game,
@@ -152,6 +156,10 @@ async def join_game(connection, params):
         response["success"] = True
         response["waiting"] = True
         await connection.send(json.dumps(response))
+
+        # Create a new cpu if the connection is requesting a cpu opponent
+        if requesting_CPU:
+            subprocess.Popen(['python3', 'computer_opponent.py', str(game_type), server_address, str(server_port)])
 
 
 # Remove any references to the connection
@@ -359,7 +367,7 @@ async def handler(connection):
 
 
 async def main():
-    async with websockets.serve(handler, "0.0.0.0", 8765):
+    async with websockets.serve(handler, server_address, server_port):
         await asyncio.Future()
 
 
