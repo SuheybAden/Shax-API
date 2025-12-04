@@ -6,7 +6,7 @@ from websockets.server import WebSocketServerProtocol
 import json
 import subprocess
 
-from board_manager import BoardManager, GameState
+from shax_engine.board_manager import BoardManager, GameState
 
 # Server parameters
 server_address = "0.0.0.0"
